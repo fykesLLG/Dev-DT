@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Конструктор Экосистемы .dt</title>
+  <style>
+    body { font-family: sans-serif; background: #1e1e1e; color: #fff; padding: 20px; }
+    .slide-block { background: #2d2d2d; padding: 15px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #444; }
+    button { background: #007acc; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; margin-right: 10px; }
+    button:hover { background: #005999; }
+    .export-btn { background: #4caf50; }
+    .export-btn:hover { background: #45a049; }
+    input, textarea { display: block; margin: 10px 0; padding: 8px; width: 100%; max-width: 400px; background: #3c3c3c; border: 1px solid #555; color: white; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <h1>Создание файла проекта .dt</h1>
+  <div id="slides-container"></div>
+
+  <button onclick="addSlide()">➕ Добавить слайд</button>
+  <button class="export-btn" onclick="exportToDt()">💾 Экспортировать в Info.dt</button>
+
+  <script>
+    let slideCount = 0;
+
+    // Функция добавления нового слайда в интерфейс
+    function addSlide() {
+      slideCount++;
+      const container = document.getElementById('slides-container');
+      const slideHtml = `
+        <div class="slide-block" id="slide_${slideCount}">
+          <h3>Слайд №${slideCount}</h3>
+          <label>Название / Текст слайда:</label>
+          <input type="text" class="slide-title" placeholder="Введите текст...">
+          <label>Картинка для этого слайда:</label>
+          <input type="file" class="slide-image" accept="image/*">
+          <button onclick="document.getElementById('slide_${slideCount}').remove()" style="background:#d9534f; margin-top: 10px;">Удалить слайд</button>
+        </div>
+      `;
+      container.insertAdjacentHTML('beforeend', slideHtml);
+    }
+
+    // Главная функция сборки бинарного файла
+    async function exportToDt() {
+      const slideElements = document.querySelectorAll('.slide-block');
+      if (slideElements.length === 0) {
+        alert("Добавьте хотя бы один слайд!");
+        return;
+      }
+
+      const encoder = new TextEncoder();
+      const slidesData = [];
+      let totalSize = 4 + 2; // 4 байта под заголовок "WSDV" + 2 байта под количество слайдов
+
+      // Собираем данные обо всех слайдах и считаем итоговый размер файла в байтах
+      for (let el of slideElements) {
+        const titleInput = el.querySelector('.slide-title').value;
+        const fileInput = el.querySelector('.slide-image').files[0]; // Берем первый выбранный файл
+
+        // Переводим текст в байты
+        const titleBytes = encoder.encode(titleInput);
+        let imageBytes = new Uint8Array(0);
+
+        // Если картинка загружена, читаем её байты
+        if (fileInput) {
+          const arrayBuffer = await fileInput.arrayBuffer();
+          imageBytes = new Uint8Array(arrayBuffer);
+        }
+
+        // Для каждого слайда в файле выделим:
+        // 4 байта (размер текста) + байты текста + 4 байта (размер картинки) + байты картинки
+        totalSize += 4 + titleBytes.length + 4 + imageBytes.length;
+
+        slidesData.push({ titleBytes, imageBytes });
+      }
+
+      // Создаем чистый буфер в оперативной памяти ровно под рассчитанный размер
+      const buffer = new ArrayBuffer(totalSize);
+      const view = new DataView(buffer);
+      const uint8View = new Uint8Array(buffer);
+      let offset = 0;
+
+      // 1. Записываем Магический заголовок (4 байта)
+      uint8View.set(encoder.encode("WSDV"), offset); 
+      offset += 4;
+
+      // 2. Записываем общее количество слайдов в файле (2 байта, тип Uint16)
+      view.setUint16(offset, slidesData.length, false); 
+      offset += 2;
+
+      // 3. Записываем поочередно каждый слайд
+      for (let slide of slidesData) {
+        // Записываем длину текста (4 байта)
+        view.setUint32(offset, slide.titleBytes.length, false); 
+        offset += 4;
+        
+        // Записываем сами байты текста
+        uint8View.set(slide.titleBytes, offset); 
+        offset += slide.titleBytes.length;
+
+        // Записываем размер картинки (4 байта)
+        view.setUint32(offset, slide.imageBytes.length, false); 
+        offset += 4;
+        
+        // Записываем сами байты картинки (если она есть)
+        if (slide.imageBytes.length > 0) {
+          uint8View.set(slide.imageBytes, offset); 
+          offset += slide.imageBytes.length;
+        }
+      }
+
+      // 4. Генерируем файл и отдаем пользователю на скачивание
+      const blob = new Blob([buffer], { type: "application/octet-stream" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "Info.dt";
+      link.click();
+      
+      // Освобождаем память
+      URL.revokeObjectURL(link.href);
+    }
+
+    // Создаем первый слайд автоматически при запуске страницы
+    addSlide();
+  </script>
+</body>
+</html>
